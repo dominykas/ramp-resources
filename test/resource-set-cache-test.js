@@ -212,19 +212,24 @@ buster.testCase("Resource set cache", {
             assert.equals(this.cache.resourceVersions(), {});
         },
 
-        "keeps resources indefinitely with -1 ttl": function (done) {
-            var rs = rr.createResourceSet();
-            var cache = rr.createCache({ ttl: -1 });
+        "keeps resources indefinitely with -1 ttl": {
+            "setUp": function () {
+                var rs = rr.createResourceSet();
+                this.cache = rr.createCache({ttl: -1});
 
-            add(rs, "/buster.js", "Yo!", { etag: "abcd" }).then(function () {
-                cache.inflate(rs).then(done(function () {
-                    this.clock.tick(30 * 24 * 60 * 60 * 1000);
+                // doing async operations inside setUp, because otherwise clock.tick() makes the test time out
+                return add(rs, "/buster.js", "Yo!", {etag: "abcd"})
+                    .then(function () {
+                        return this.cache.inflate(rs);
+                    }.bind(this));
+            },
+            "test": function () {
+                this.clock.tick(30 * 24 * 60 * 60 * 1000);
 
-                    assert.equals(cache.resourceVersions(), {
-                        "/buster.js": ["abcd"]
-                    });
-                }.bind(this)));
-            }.bind(this));
+                assert.equals(this.cache.resourceVersions(), {
+                    "/buster.js": ["abcd"]
+                });
+            }
         }
     },
 
@@ -236,15 +241,22 @@ buster.testCase("Resource set cache", {
         },
 
         "returns all cached resource version": function () {
-            add(this.rs, "/sinon.js", "Yeah", { etag: "123" });
-            add(this.rs, "/buster.js", "Heh", { etag: "666" });
-            add(this.rs, "/when.js", "When??!?", {});
-            this.cache.inflate(this.rs);
-
-            assert.equals(this.cache.resourceVersions(), {
-                "/buster.js": ["abcd1234", "666"],
-                "/sinon.js": ["123"]
-            });
+            return add(this.rs, "/sinon.js", "Yeah", {etag: "123"})
+                .then(function () {
+                    return add(this.rs, "/buster.js", "Heh", {etag: "666"});
+                }.bind(this))
+                .then(function () {
+                    return add(this.rs, "/when.js", "When??!?", {});
+                }.bind(this))
+                .then(function () {
+                    return this.cache.inflate(this.rs);
+                }.bind(this))
+                .then(function () {
+                    assert.equals(this.cache.resourceVersions(), {
+                        "/buster.js": ["abcd1234", "666"],
+                        "/sinon.js": ["123"]
+                    });
+                }.bind(this));
         }
     },
 
@@ -279,10 +291,13 @@ buster.testCase("Resource set cache", {
         },
 
         "adjusts cache byte size approximation when adding": function () {
-            add(this.rs, "/sinon.js", "Yeah", { etag: "1" }).then(function (r) {
-                this.cache.inflate(this.rs);
-                assert.equals(this.cache.size(), 148);
-            }.bind(this));
+            return add(this.rs, "/sinon.js", "Yeah", {etag: "1"})
+                .then(function () {
+                    return this.cache.inflate(this.rs);
+                }.bind(this))
+                .then(function () {
+                    assert.equals(this.cache.size(), 148);
+                }.bind(this));
         }
     },
 
@@ -290,40 +305,47 @@ buster.testCase("Resource set cache", {
         setUp: maxSizeSetUp,
 
         "purges oldest content when growing too large": function () {
-            this.cache.inflate(this.rs);
-
-            assert.equals(this.cache.resourceVersions(), {
-                "/sinon.js": ["1234"],
-                "/when.js": ["0123"]
-            });
+            return this.cache.inflate(this.rs).then(function () {
+                assert.equals(this.cache.resourceVersions(), {
+                    "/sinon.js": ["1234"],
+                    "/when.js": ["0123"]
+                });
+            }.bind(this));
         },
 
         "does not purge oldest content when in freeze": function () {
             this.cache.maxSize(250);
-            this.cache.inflate(this.rs);
-            this.cache.freeze(50);
-            this.cache.inflate(this.rs2);
-
-            assert.equals(this.cache.resourceVersions(), {
-                "/buster.js": ["abcd"],
-                "/sinon.js": ["1234"],
-                "/when.js": ["0123"],
-                "/jquery.js": ["zxcv"]
-            });
+            return this.cache.inflate(this.rs)
+                .then(function () {
+                    this.cache.freeze(50);
+                    return this.cache.inflate(this.rs2);
+                }.bind(this))
+                .then(function () {
+                    assert.equals(this.cache.resourceVersions(), {
+                        "/buster.js": ["abcd"],
+                        "/sinon.js": ["1234"],
+                        "/when.js": ["0123"],
+                        "/jquery.js": ["zxcv"]
+                    });
+                }.bind(this));
         },
 
         "purges oldest content after current freeze": function () {
             this.cache.maxSize(250);
-            this.cache.inflate(this.rs);
-            this.cache.freeze(50);
-            this.cache.inflate(this.rs2);
-            this.clock.tick(50);
+            return this.cache.inflate(this.rs)
+                .then(function () {
+                    this.cache.freeze(50);
+                    return this.cache.inflate(this.rs2);
+                }.bind(this))
+                .then(function () {
+                    this.clock.tick(50);
 
-            assert.equals(this.cache.resourceVersions(), {
-                "/sinon.js": ["1234"],
-                "/when.js": ["0123"],
-                "/jquery.js": ["zxcv"]
-            });
+                    assert.equals(this.cache.resourceVersions(), {
+                        "/sinon.js": ["1234"],
+                        "/when.js": ["0123"],
+                        "/jquery.js": ["zxcv"]
+                    });
+                }.bind(this));
         }
     },
 
@@ -334,32 +356,36 @@ buster.testCase("Resource set cache", {
         },
 
         "purges everything": function () {
-            this.cache.inflate(this.rs);
-            this.cache.purgeAll();
+            return this.cache.inflate(this.rs).then(function () {
+                this.cache.purgeAll();
 
-            assert.equals(this.cache.resourceVersions(), {});
+                assert.equals(this.cache.resourceVersions(), {});
+            }.bind(this));
         },
 
         "does not purge everything when in freeze": function () {
-            this.cache.inflate(this.rs);
-            this.cache.freeze(100);
-            this.cache.purgeAll();
+            return this.cache.inflate(this.rs).then(function () {
+                this.cache.freeze(100);
+                this.cache.purgeAll();
 
-            assert.equals(this.cache.resourceVersions(), {
-                "/buster.js": ["abcd"],
-                "/sinon.js": ["1234"],
-                "/when.js": ["0123"]
-            });
+                assert.equals(this.cache.resourceVersions(), {
+                    "/buster.js": ["abcd"],
+                    "/sinon.js": ["1234"],
+                    "/when.js": ["0123"]
+                });
+            }.bind(this));
         },
 
         "purges everything after current freeze": function () {
-            this.cache.inflate(this.rs);
-            this.cache.freeze(100);
-            this.clock.tick(50);
-            this.cache.purgeAll();
-            this.clock.tick(50);
+            return this.cache.inflate(this.rs).then(function () {
+                this.cache.inflate(this.rs);
+                this.cache.freeze(100);
+                this.clock.tick(50);
+                this.cache.purgeAll();
+                this.clock.tick(50);
 
-            assert.equals(this.cache.resourceVersions(), {});
+                assert.equals(this.cache.resourceVersions(), {});
+            }.bind(this));
         }
     }
 });
